@@ -26,6 +26,7 @@ from icecream import ic
 
 #local
 import gdutils
+from gdutils import mylog, log_components
 
 if not hasattr(fuse, '__version__'):
     raise RuntimeError("your fuse-py doesn't know of fuse.__version__, probably it's too old.")
@@ -34,6 +35,7 @@ fuse.fuse_python_api = (0, 2)
 
 fuse.feature_assert('stateful_files', 'has_init')
 
+log_components = ['file-write']
 
 def flag2mode(flags):
     md = {os.O_RDONLY: 'rb', os.O_WRONLY: 'wb', os.O_RDWR: 'wb+'}
@@ -59,7 +61,7 @@ class GitFS(Fuse):
         """
         branch_fol = Path(self.root) / '.git/refs/heads'
         self.branches = list(branch_fol.glob('*'))
-        print(f'root: {branch_fol.absolute()} \n branches: {self.branches}')
+        mylog('_get_info', f'root: {branch_fol.absolute()} \n branches: {self.branches}')
         self.root_stat = os.lstat('.')
         # print(f'branches: {branches}')
 
@@ -67,15 +69,17 @@ class GitFS(Fuse):
         if path.count('/') == 1:
             # branch
             return self.root_stat
-        print(f'read attr: {path}')
-        return os.lstat("." + path)
+        newpath = f"{self.root.parent}/tmp{path}"
+        mylog('getattr', 'read attr', path)
+        mylog('getattr', newpath)
+        return os.lstat(newpath)
 
     def readlink(self, path):
-        print(f'read link: {path}')
+        mylog('readlink', f'read link: {path}')
         return os.readlink("." + path)
 
     def readdir(self, path, offset):
-        print(f'read-dir path: {path}')
+        mylog('readdir', f'read-dir path: {path}')
         if path == '/':
             for e in self.branches:
                 yield fuse.Direntry(e.name)
@@ -83,7 +87,7 @@ class GitFS(Fuse):
             branch = path.split('/')[1]
             gdutils.git_create_worktree(self.root, branch)
 
-            for e in os.listdir(f"./tmp/{branch}/"):
+            for e in os.listdir(f"{self.root.parent}/tmp{path}/"):
                 yield fuse.Direntry(e)
 
     def unlink(self, path):
@@ -143,7 +147,7 @@ class GitFS(Fuse):
                 self.iolock = Lock()
 
         def read(self, length, offset):
-            print(f'file read: {self.file.name}')
+            mylog('file-read', f'file read: {self.file.name}')
             if self.iolock:
                 self.iolock.acquire()
                 try:
@@ -155,6 +159,7 @@ class GitFS(Fuse):
                 return os.pread(self.fd, length, offset)
 
         def write(self, buf, offset):
+            mylog('file-write', f'file written: {self.file.name}')
             if self.iolock:
                 self.iolock.acquire()
                 try:
@@ -186,7 +191,7 @@ class GitFS(Fuse):
             os.close(os.dup(self.fd))
 
         def fgetattr(self):
-            print(f'file getattr: {self.file.name}')
+            mylog('file-getattr', f'file getattr: {self.file.name}')
             return os.fstat(self.fd)
 
         def ftruncate(self, len):
@@ -227,16 +232,16 @@ Userspace nullfs-alike: mirror the filesystem tree from some point on.
 
 """ + Fuse.fusage
     
-    print(sys.argv)
+    mylog('main', sys.argv)
     folder = Path(sys.argv[1])
     parent = folder.parent
     mount = parent / 'mount'
 
     # # print(folder, parent, mount)
     sys.argv[1] = str(mount)
-    print(sys.argv)
+    mylog('main', sys.argv)
     create_folder(mount)
-    print(f'mounting to: {mount}')
+    mylog('main', f'mounting to: {mount}')
 
     server = GitFS(version="%prog " + fuse.__version__,
                  usage=usage,
